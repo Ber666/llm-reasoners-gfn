@@ -10,14 +10,14 @@ from reasoners import SearchConfig, LanguageModel
 from world_model import Game24State, Game24Action
 
 from prompts.game24 import output_prompt, propose_prompt, value_prompt, value_last_step_prompt, value_map
+from utils import extract_operands, remove_and_add, update_left_numbers
 
-
-class Game24Config(SearchConfig[Game24State, Game24Action]):
+class Game24Config(SearchConfig):
     def __init__(self,
                  base_model: LanguageModel,
                  prompt: dict,
-                 n_actions=4,
-                 batch_size=2,
+                 n_actions=8,
+                 batch_size=1,
                  depth_limit=4,
                  temperature=0.7,
                  n_eval=5,
@@ -63,23 +63,37 @@ class Game24Config(SearchConfig[Game24State, Game24Action]):
         if state.current == '24':
             prompt = self.output_prompt_wrap(state)
             output = \
-            self.base_model.generate([prompt], num_return_sequences=1, do_sample=False, eos_token_id='\n').text[0]
+            self.base_model.generate([prompt], num_return_sequences=1, do_sample=False, eos_token_id='\n\n', max_new_tokens=200).text[0]
             output = 'Answer: ' + output.strip()
+            # print(f'Output: {output}')
             return [output]
         elif ' ' not in state.current:
             return []
         else:
             prompt = self.propose_prompt_wrap(state)
+            
             output = \
-            self.base_model.generate([prompt], num_return_sequences=1, do_sample=False, eos_token_id='Input').text[0]
+            self.base_model.generate([prompt], num_return_sequences=1, do_sample=False, eos_token_id='Input', max_new_tokens=200).text[0]
+
+            
             output = output.strip()
             if '\n\n' in output:
                 output = output.split('\n\n')[0]
             output = output.split('\n')
-            actions = [x for x in output if 'left' in x]
+            actions = []
+            for x in output:
+                if 'left' in x:
+                    op_a, op_b, result = extract_operands(x)
+                    cur_state = remove_and_add(state.current, [op_a, op_b], [result])
+                    x = update_left_numbers(x, cur_state)
+                    actions.append(x)
+
             # set does not guarantee order, but dict does guarantee
             # we cannot use set here because torch.distributed in LLaMA requires the same order across all processes
             actions = list(dict.fromkeys(actions))
+            # only consider the first n_actions
+            actions = actions[:self.n_actions]
+            # print(f'Actions: {actions}')
             return actions
 
     def _reward(self, state: Game24State, action: Game24Action) -> float:
@@ -89,6 +103,7 @@ class Game24Config(SearchConfig[Game24State, Game24Action]):
         if 'Answer' in action:
             match = re.match(r'Answer: (.*)', action)
             next_state.output = match[1] if match is not None else ''
+
         else:
             match = re.match(r'.*\(left: (.*)\)', action)
             next_state.current = match[1] if match is not None else ''
@@ -107,8 +122,10 @@ class Game24Config(SearchConfig[Game24State, Game24Action]):
             value_outputs = []
             for idx in range(0, self.n_eval, self.batch_size):
                 n_samples = min(self.n_eval - idx, self.batch_size)
+                # print(f'Confidence Prompt: {prompt}')
                 output = self.base_model.generate([prompt], do_sample=True, temperature=self.temperature,
-                                                  num_return_sequences=n_samples).text
+                                                  num_return_sequences=n_samples, max_new_tokens=100, eos_token_id=["\n\n"]).text
+                
                 value_outputs += [o.strip().split('\n\n')[0] for o in output]
             # print(value_outputs)
             value = self.retrieve_value(value_outputs)

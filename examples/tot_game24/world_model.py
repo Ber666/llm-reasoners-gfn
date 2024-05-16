@@ -4,7 +4,6 @@ import re
 from typing import Optional
 from reasoners import WorldModel, LanguageModel
 
-
 @dataclasses.dataclass
 class Game24State:
     input: str
@@ -22,7 +21,7 @@ class Game24State:
 Game24Action = str
 
 
-class Game24WorldModel(WorldModel[Game24State, Game24Action]):
+class Game24WorldModel(WorldModel):
     def __init__(self,
                  base_model: LanguageModel,
                  prompt: dict,

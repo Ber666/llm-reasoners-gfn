@@ -124,3 +124,23 @@ def value_outputs_unwrap(x: str, y: str, value_outputs: list) -> float:
     value_map = {'impossible': 0.001, 'likely': 1, 'sure': 20}  # TODO: ad hoc
     value = sum(value * value_names.count(name) for name, value in value_map.items())
     return value
+
+def extract_operands(equation):
+    pattern = r"(-?\d+)\s*([+]|[-]|[*]|[/])\s*(-?\d+)\s*=\s*(-?\d+)"
+    match = re.match(pattern, equation)
+    if match:
+        return [match.group(1), match.group(3), match.group(4)]
+    else:
+        return ["", "", ""]
+
+def remove_and_add(original_string, removal_list, addition_list):
+    words = original_string.split()
+    for removal in removal_list:
+        if removal in words:
+            words.remove(removal)
+    words += addition_list
+    return ' '.join(words)
+
+def update_left_numbers(original_string, new_left_numbers):
+    left_numbers_str = ' '.join(new_left_numbers.split())
+    return re.sub(r'\(left: .*\)', f'(left: {left_numbers_str})', original_string)
